@@ -2,7 +2,7 @@ name := "spark-connector"
 
 organization := "com.couchbase.client"
 
-version := "1.1.0"
+version := "1.1.0_master_keedio"
 
 description := "Official Couchbase Spark Connector"
 
