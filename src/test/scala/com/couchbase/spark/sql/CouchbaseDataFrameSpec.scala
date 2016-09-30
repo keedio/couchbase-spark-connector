@@ -57,8 +57,7 @@ class CouchbaseDataFrameSpec extends FlatSpec with Matchers with BeforeAndAfterA
     val airport = ssc.read.couchbase(EqualTo("type", "airport"), Map("bucket" -> "travel-sample"))
     val route = ssc.read.couchbase(EqualTo("type", "route"), Map("bucket" -> "travel-sample"))
     val landmark = ssc.read.couchbase(EqualTo("type", "landmark"), Map("bucket" -> "travel-sample"))
-
-
+    
     airline
       .limit(10)
       .write

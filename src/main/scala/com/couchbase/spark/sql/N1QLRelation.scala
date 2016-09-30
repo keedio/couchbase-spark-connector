@@ -41,7 +41,7 @@ class N1QLRelation(bucket: String, userSchema: Option[StructType], parameters: M
   private val bucketName = Option(bucket).getOrElse(cbConfig.buckets.head.name)
   private val idFieldName = parameters.getOrElse("idField", DefaultSource.DEFAULT_DOCUMENT_ID_FIELD)
 
-  override val schema = userSchema.getOrElse[StructType] {
+  override def schema = userSchema.getOrElse[StructType] {
     val queryFilter = if (parameters.get("schemaFilter").isDefined) {
       "WHERE " + parameters.get("schemaFilter").get
     } else {
@@ -80,11 +80,44 @@ class N1QLRelation(bucket: String, userSchema: Option[StructType], parameters: M
 
     logInfo(s"Executing generated query: '$query'")
 
+    val serializedSchema = schema.json
+    
     sqlContext.read.json(
-      QueryRDD(sqlContext.sparkContext, bucketName, N1qlQuery.simple(query)).map(_.value.toString)
-    ).map(row =>
-      Row.fromSeq(requiredColumns.map(col => row.get(row.fieldIndex(col))).toList)
-    )
+      QueryRDD(sqlContext.sparkContext, bucketName, N1qlQuery.simple(query)).map(elem => {
+
+        elem.value.toString
+      })
+    ).mapPartitions(iter => {
+      val schema = DataType.fromJson(serializedSchema) match {
+        case t: StructType => t
+        case _ => throw new RuntimeException(s"Failed parsing StructType: $serializedSchema")
+      }
+
+      iter.map {
+        row =>
+          Row.fromSeq(
+            requiredColumns.map {
+              col =>
+                val fieldIdx = row.fieldIndex(col)
+
+                if (row.get(fieldIdx) != null) {
+                  val structField = schema.filter(f => f.name.equals(col)).head
+                  val fieldType = row.get(fieldIdx).getClass
+
+                  if (structField.dataType.isInstanceOf[DoubleType] &&
+                    !(fieldType.equals(classOf[java.lang.Double]) ||
+                      fieldType.equals(classOf[scala.Double]))) {
+
+                    java.lang.Double.parseDouble(row.get(fieldIdx).toString)
+                  } else {
+                    row.get(fieldIdx)
+                  }
+                } else {
+                  null
+                }
+            })
+      }
+    })
   }
 
   /**
@@ -190,8 +223,11 @@ object N1QLRelation {
     case v => s"$v"
   }
 
-  def attrToFilter(attr: String): String = {
-    attr.split('.').map(elem => s"`$elem`").mkString(".")
+  val VerbatimRegex = """'(.*)'""".r
+
+  def attrToFilter(attr: String): String = attr match {
+    case VerbatimRegex(innerAttr) => innerAttr
+    case v => v.split('.').map(elem => s"`$elem`").mkString(".")
   }
 
 }
