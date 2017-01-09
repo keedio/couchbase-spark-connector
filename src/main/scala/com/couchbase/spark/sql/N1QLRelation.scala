@@ -18,28 +18,27 @@ package com.couchbase.spark.sql
 import com.couchbase.client.java.query.N1qlQuery
 import com.couchbase.spark.connection.CouchbaseConfig
 import com.couchbase.spark.rdd.QueryRDD
+import com.couchbase.spark.sql.N1QLRelation.buildColumns
+import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.spark.Logging
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.{Row, SQLContext}
 import org.apache.spark.sql.sources._
 
 /**
- * Implements a the BaseRelation for N1QL Queries.
- *
- * @param bucket the name of the bucket
- * @param userSchema the optional schema (if not provided it will be inferred)
- * @param sqlContext the sql context.
- */
+  * Implements a the BaseRelation for N1QL Queries.
+  *
+  * @param bucket     the name of the bucket
+  * @param userSchema the optional schema (if not provided it will be inferred)
+  * @param sqlContext the sql context.
+  */
 class N1QLRelation(bucket: String, userSchema: Option[StructType], parameters: Map[String, String])
                   (@transient val sqlContext: SQLContext)
   extends BaseRelation
-  with PrunedFilteredScan
-  with Logging {
-
-  private val cbConfig = CouchbaseConfig(sqlContext.sparkContext.getConf)
-  private val bucketName = Option(bucket).getOrElse(cbConfig.buckets.head.name)
-  private val idFieldName = parameters.getOrElse("idField", DefaultSource.DEFAULT_DOCUMENT_ID_FIELD)
+    with PrunedFilteredScan
+    with Logging {
 
   override val schema = userSchema.getOrElse[StructType] {
     val queryFilter = if (parameters.get("schemaFilter").isDefined) {
@@ -61,6 +60,9 @@ class N1QLRelation(bucket: String, userSchema: Option[StructType], parameters: M
 
     schema
   }
+  private val cbConfig = CouchbaseConfig(sqlContext.sparkContext.getConf)
+  private val bucketName = Option(bucket).getOrElse(cbConfig.buckets.head.name)
+  private val idFieldName = parameters.getOrElse("idField", DefaultSource.DEFAULT_DOCUMENT_ID_FIELD)
 
   override def buildScan(requiredColumns: Array[String], filters: Array[Filter]): RDD[Row] = {
     var stringFilter = buildFilter(filters)
@@ -75,48 +77,60 @@ class N1QLRelation(bucket: String, userSchema: Option[StructType], parameters: M
       stringFilter = " WHERE " + stringFilter
     }
 
-    val query = "SELECT " + buildColumns(requiredColumns, bucketName) + " FROM `" +
+    val query = "SELECT " +
+      buildColumns(requiredColumns, bucketName, idFieldName, cbConfig.nullIfMissing) +
+      " FROM `" +
       bucketName + "`" + stringFilter
 
     logInfo(s"Executing generated query: '$query'")
 
+    val mySchema = schema.json
+
     sqlContext.read.json(
-      QueryRDD(sqlContext.sparkContext, bucketName, N1qlQuery.simple(query)).map(_.value.toString)
-    ).map(row =>
-      Row.fromSeq(requiredColumns.map(col => row.get(row.fieldIndex(col))).toList)
-    )
-  }
+      QueryRDD(sqlContext.sparkContext, bucketName, N1qlQuery.simple(query)).map(elem => {
 
-  /**
-   * Transforms the required columns into the field list for the select statement.
-   *
-   * @param requiredColumns the columns to transform.
-   * @return the raw N1QL string
-   */
-  private def buildColumns(requiredColumns: Array[String], bucktName: String): String =  {
-    if (requiredColumns.isEmpty) {
-      return s"`$bucketName`.*"
-    }
-
-    requiredColumns
-      .map(column => {
-        if (column == idFieldName) {
-          s"META(`$bucketName`).id as `$idFieldName`"
-        } else {
-          "`" + column + "`"
-        }
+        elem.value.toString
       })
-      .mkString(",")
+    ).mapPartitions(iter => {
+      val schema = DataType.fromJson(mySchema) match {
+        case t: StructType => t
+        case _ => throw new RuntimeException(s"Failed parsing StructType: $mySchema")
+      }
+
+      iter.map {
+        row =>
+          Row.fromSeq(
+            requiredColumns.map {
+              col =>
+                val fieldIdx = row.fieldIndex(col)
+
+                if (row.get(fieldIdx) != null) {
+                  val structField = schema.filter(f => f.name.equals(col)).head
+                  val fieldType = row.get(fieldIdx).getClass
+
+                  if (structField.dataType.isInstanceOf[DoubleType] &&
+                    !(fieldType.equals(classOf[java.lang.Double]) ||
+                      fieldType.equals(classOf[scala.Double]))) {
+
+                    java.lang.Double.parseDouble(row.get(fieldIdx).toString)
+                  } else {
+                    row.get(fieldIdx)
+                  }
+                } else {
+                  null
+                }
+            })
+      }
+    })
   }
 
-
   /**
-   * Transform the filters into a N1QL where clause.
-   *
-   * @todo In, And, Or, Not filters including recursion
-   * @param filters the filters to transform
-   * @return the transformed raw N1QL clause
-   */
+    * Transform the filters into a N1QL where clause.
+    *
+    * @todo In, And, Or, Not filters including recursion
+    * @param filters the filters to transform
+    * @return the transformed raw N1QL clause
+    */
   private def buildFilter(filters: Array[Filter]): String = {
     if (filters.isEmpty) {
       return ""
@@ -144,13 +158,41 @@ class N1QLRelation(bucket: String, userSchema: Option[StructType], parameters: M
 }
 
 object N1QLRelation {
+  val VerbatimRegex = """'(.*)'""".r
 
   /**
-   * Turns a filter into a N1QL expression.
-   *
-   * @param filter the filter to convert
-   * @return the resulting expression
-   */
+    * Transforms the required columns into the field list for the select statement.
+    *
+    * @param requiredColumns the columns to transform.
+    * @return the raw N1QL string
+    */
+  def buildColumns(requiredColumns: Array[String],
+                   bucketName: String,
+                   idFieldName: String,
+                   nullIfMissing: Boolean = false): String = {
+    if (requiredColumns.isEmpty) {
+      return s"`$bucketName`.*"
+    }
+
+    requiredColumns
+      .map(column => {
+        if (column == idFieldName) {
+          s"META(`$bucketName`).id as `$idFieldName`"
+        } else if (nullIfMissing) {
+          s"IFMISSING(`$column`,NULL) as `$column`"
+        } else {
+          "`" + column + "`"
+        }
+      })
+      .mkString(",")
+  }
+
+  /**
+    * Turns a filter into a N1QL expression.
+    *
+    * @param filter the filter to convert
+    * @return the resulting expression
+    */
   def filterToExpression(filter: Filter): String = {
     filter match {
       case EqualTo(attr, value) => s" ${attrToFilter(attr)} = " + valueToFilter(value)
@@ -190,8 +232,9 @@ object N1QLRelation {
     case v => s"$v"
   }
 
-  def attrToFilter(attr: String): String = {
-    attr.split('.').map(elem => s"`$elem`").mkString(".")
+  def attrToFilter(attr: String): String = attr match {
+    case VerbatimRegex(innerAttr) => innerAttr
+    case v => v.split('.').map(elem => s"`$elem`").mkString(".")
   }
 
 }

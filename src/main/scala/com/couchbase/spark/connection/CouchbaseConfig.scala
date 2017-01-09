@@ -20,7 +20,7 @@ import org.apache.spark.SparkConf
 case class CouchbaseBucket(name: String, password: String)
 case class RetryOptions(maxTries: Int, maxDelay: Int, minDelay: Int)
 case class CouchbaseConfig(
-  hosts: Seq[String], buckets: Seq[CouchbaseBucket], retryOpts: RetryOptions)
+  hosts: Seq[String], buckets: Seq[CouchbaseBucket], retryOpts: RetryOptions, nullIfMissing: Boolean = false)
 
 object CouchbaseConfig {
 
@@ -30,13 +30,15 @@ object CouchbaseConfig {
   private val MAX_RETRIES_PREFIX = PREFIX + "maxRetries"
   private val MAX_RETRY_DELAY_PREFIX = PREFIX + "maxRetryDelay"
   private val MIN_RETRY_DELAY_PREFIX = PREFIX + "minRetryDelay"
-
+  private val NULL_IF_MISSING_PREFIX = PREFIX + "nullIfMissing"
+  
   private val COMPAT_PREFIX = "spark.couchbase."
   private val COMPAT_BUCKET_PREFIX = COMPAT_PREFIX + "bucket."
   private val COMPAT_NODES_PREFIX = COMPAT_PREFIX + "nodes"
   private val COMPAT_MAX_RETRIES_PREFIX = COMPAT_PREFIX + "maxRetries"
   private val COMPAT_MAX_RETRY_DELAY_PREFIX = COMPAT_PREFIX + "maxRetryDelay"
   private val COMPAT_MIN_RETRY_DELAY_PREFIX = COMPAT_PREFIX + "minRetryDelay"
+  private val COMPAT_NULL_IF_MISSING_PREFIX = COMPAT_PREFIX + "nullIfMissing"
 
   val DEFAULT_NODE = "127.0.0.1"
   val DEFAULT_BUCKET = "default"
@@ -44,6 +46,7 @@ object CouchbaseConfig {
   val DEFAULT_MAX_RETRIES = "130"
   val DEFAULT_MAX_RETRY_DELAY = "1000"
   val DEFAULT_MIN_RETRY_DELAY = "0"
+  val DEFAULT_NULL_IF_MISSING = "false"
 
   def apply(cfg: SparkConf) = {
     val bucketConfigs = cfg
@@ -81,13 +84,19 @@ object CouchbaseConfig {
       .getOrElse(DEFAULT_MAX_RETRY_DELAY)
       .toInt
 
+    val nullIfMissing = cfg
+      .getOption(NULL_IF_MISSING_PREFIX)
+      .orElse(cfg.getOption(COMPAT_NULL_IF_MISSING_PREFIX))
+      .getOrElse(DEFAULT_NULL_IF_MISSING)
+      .toBoolean
+    
     val retryOptions = RetryOptions(maxRetries, maxRetryDelay, minRetryDelay)
 
     if (bucketConfigs.isEmpty) {
       new CouchbaseConfig(nodes, Seq(CouchbaseBucket(DEFAULT_BUCKET, DEFAULT_PASSWORD)),
-        retryOptions)
+        retryOptions, nullIfMissing)
     } else {
-      new CouchbaseConfig(nodes, bucketConfigs, retryOptions)
+      new CouchbaseConfig(nodes, bucketConfigs, retryOptions, nullIfMissing)
     }
   }
 

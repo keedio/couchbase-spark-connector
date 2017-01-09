@@ -28,6 +28,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
     val cbConf = CouchbaseConfig.apply(sparkConf)
 
     cbConf.hosts should equal(Array("a", "b", "c", "d", "e", "f"))
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "accept compat bucket references in addition to regular ones" in {
@@ -43,6 +44,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
     cbConf.buckets.head.password should equal("b")
     cbConf.buckets(1).name should equal("c")
     cbConf.buckets(1).password should equal("d")
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "apply default settings" in {
@@ -53,6 +55,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
     cbConf.buckets.size should equal(1)
     cbConf.buckets.head.name should equal("default")
     cbConf.buckets.head.password should equal("")
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "work only with com prefix settings" in {
@@ -61,6 +64,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
 
     val cbConf = CouchbaseConfig.apply(sparkConf)
     cbConf.hosts should equal(Array("a", "b", "c", "d"))
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "work only with spark prefix settings" in {
@@ -69,6 +73,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
 
     val cbConf = CouchbaseConfig.apply(sparkConf)
     cbConf.hosts should equal(Array("d", "e", "f"))
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "apply default settings with empty list on com prefix" in {
@@ -77,6 +82,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
 
     val cbConf = CouchbaseConfig.apply(sparkConf)
     cbConf.hosts should equal(Array("127.0.0.1"))
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "apply default settings with empty list on spark prefix" in {
@@ -85,6 +91,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
 
     val cbConf = CouchbaseConfig.apply(sparkConf)
     cbConf.hosts should equal(Array("127.0.0.1"))
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "apply default retry values" in {
@@ -92,6 +99,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
     val cbConf = CouchbaseConfig.apply(sparkConf)
 
     cbConf.retryOpts should equal(RetryOptions(130, 1000, 0))
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "set custom retry values on com prefix" in {
@@ -102,6 +110,7 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
     val cbConf = CouchbaseConfig.apply(sparkConf)
 
     cbConf.retryOpts should equal(RetryOptions(5, 10, 1))
+    cbConf.nullIfMissing shouldBe false
   }
 
   it should "set custom retry values on spark prefix" in {
@@ -112,5 +121,22 @@ class CouchbaseConfigSpec extends FlatSpec with Matchers {
     val cbConf = CouchbaseConfig.apply(sparkConf)
 
     cbConf.retryOpts should equal(RetryOptions(5, 10, 1))
+    cbConf.nullIfMissing shouldBe false
+  }
+
+  it should "set null if missing on com prefix" in {
+    val sparkConf = new SparkConf()
+      .set("com.couchbase.nullIfMissing", "true")
+    val cbConf = CouchbaseConfig.apply(sparkConf)
+
+    cbConf.nullIfMissing shouldBe true
+  }
+
+  it should "set null if missing on spark prefix" in {
+    val sparkConf = new SparkConf()
+      .set("spark.couchbase.nullIfMissing", "true")
+    val cbConf = CouchbaseConfig.apply(sparkConf)
+
+    cbConf.nullIfMissing shouldBe true
   }
 }

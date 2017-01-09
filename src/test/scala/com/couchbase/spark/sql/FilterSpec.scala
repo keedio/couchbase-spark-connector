@@ -124,4 +124,34 @@ class FilterSpec extends FlatSpec with Matchers {
 
     parsedFilter should equal(" `flavour`.`origin`.`country`.`region` = 'tuscany'")
   }
+  
+  it should "not parse text marked as verbatim" in {
+    val filter = EqualTo("'substr('textField',0,10)'", "2016-09-13")
+
+    val parsedFilter = N1QLRelation.filterToExpression(filter)
+
+    parsedFilter should equal(" substr('textField',0,10) = '2016-09-13'")
+  }
+
+  it should "generate select star without columns" in {
+    val columns = N1QLRelation.buildColumns(Array(), "default", "META_ID")
+    
+    columns should equal("`default`.*")
+  }
+
+  it should "generate select with column fields and no missingIfNull" in {
+    val columns = N1QLRelation.buildColumns(
+      Array("col0", "META_ID", "col1"), "default", "META_ID")
+
+    columns should equal("`col0`,META(`default`).id as `META_ID`,`col1`")
+  }
+
+  it should "generate select with column fields and missingIfNull" in {
+    val columns = N1QLRelation.buildColumns(
+      Array("col0", "META_ID", "col1"), "default", "META_ID", true)
+
+    columns should 
+      equal("IFMISSING(`col0`,NULL) as `col0`," +
+        "META(`default`).id as `META_ID`,IFMISSING(`col1`,NULL) as `col1`")
+  }
 }

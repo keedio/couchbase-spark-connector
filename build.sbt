@@ -2,13 +2,13 @@ name := "spark-connector"
 
 organization := "com.couchbase.client"
 
-version := "1.2.1"
+version := "1.2.1_k1"
 
 description := "Official Couchbase Spark Connector"
 
 organizationHomepage := Some(url("http://couchbase.com"))
 
-scalaVersion := "2.10.5"
+scalaVersion := "2.11.8"
 
 crossScalaVersions := Seq("2.11.8", "2.10.6")
 javacOptions ++= Seq("-source", "1.7", "-target", "1.7")
@@ -40,7 +40,7 @@ publishTo := {
     Some("releases"  at nexus + "service/local/staging/deploy/maven2")
 }
 
-credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
+//credentials += Credentials(Path.userHome / ".ivy2" / ".credentials")
 
 pomExtra := (
   <url>https://github.com/couchbaselabs/couchbase-spark-connector</url>
