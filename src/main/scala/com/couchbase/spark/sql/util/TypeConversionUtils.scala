@@ -33,7 +33,7 @@ object TypeConversionUtils {
     }
   }
 
-  val numericTypesCompatibilityMap: Map[Class[_], Array[String]] = Map(
+  private val numericTypesCompatibilityMap: Map[Class[_], Array[String]] = Map(
     classOf[Byte] -> Array(ShortType.simpleString, IntegerType.simpleString, LongType.simpleString,
       DoubleType.simpleString, FloatType.simpleString, "decimal"),
     classOf[java.lang.Byte] -> Array(ShortType.simpleString,
@@ -61,7 +61,7 @@ object TypeConversionUtils {
   )
 
 
-  val sparkNumericTypeToJavaTypeMap = Map(
+  private val sparkNumericTypeToJavaTypeMap = Map(
     ByteType.simpleString -> Array(classOf[Byte], classOf[java.lang.Byte]),
     ShortType.simpleString -> Array(classOf[Short], classOf[java.lang.Short]),
     IntegerType.simpleString -> Array(classOf[Int], classOf[java.lang.Integer]),
